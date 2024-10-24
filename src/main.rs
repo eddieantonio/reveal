@@ -17,33 +17,33 @@
 
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
-use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
+// See: https://en.wikipedia.org/wiki/ANSI_escape_code#CSI_(Control_Sequence_Introducer)_sequences
 const CSI: &str = "\x1b[";
 const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[m";
 const DIM: &str = "\x1b[2m";
 
 fn main() -> io::Result<()> {
-    let reader = reconfigure_stdin()?;
+    let input = BufReader::new(reroute_stdin()?);
 
-    print_loop(reader)
-}
-
-fn print_loop(reader: impl BufRead) -> io::Result<()> {
     let controlling_terminal = File::open("/dev/tty")?;
     let mut stdin = BufReader::new(controlling_terminal);
     let mut dumpster = String::new();
 
-    for line in reader.lines() {
+    for line in input.lines() {
         let line = line?;
-        let contents = line.trim();
+        let contents = line.trim_end();
         println!("{BOLD}{contents}{RESET}");
 
         stdin.read_line(&mut dumpster)?;
         dumpster.clear();
 
-        cursor_previous_line(2);
+        // Move up two lines:
+        //  - one line created by println!()
+        //  - another line introduced by pressing <Enter> at the "prompt"
+        cursor_preceding_line(2);
         erase_line();
         println!("{DIM}{contents}{RESET}");
     }
@@ -51,21 +51,28 @@ fn print_loop(reader: impl BufRead) -> io::Result<()> {
     Ok(())
 }
 
-fn reconfigure_stdin() -> io::Result<BufReader<File>> {
+/// Duplicates stdin and returns it as a regular file.
+/// Closes stdin, which should be redirected input.
+fn reroute_stdin() -> io::Result<File> {
     let stdin_fd = io::stdin().lock().as_raw_fd();
     let pipe_fd = nix::unistd::dup(stdin_fd)?;
+    nix::unistd::close(stdin_fd)?;
 
-    // BUG: there is nothing that calls close() on pipe_fd,
-    // so there is technically a resource leak.
+    // We convert it into an OwnedFD so that the fd will be close()'d when the File is dropped.
     let pipe = unsafe { File::from_raw_fd(pipe_fd) };
+    let pipe: OwnedFd = pipe.into();
 
-    Ok(BufReader::new(pipe))
+    Ok(pipe.into())
 }
 
-fn cursor_previous_line(n: u8) {
+/// Moves the cursor to the nth line before the current line.
+///  - ECMA 48, 5th Edition, §8.3.13
+fn cursor_preceding_line(n: u8) {
     print!("{CSI}{n}F")
 }
 
+/// Erases from the cursor to the end of the current line.
+///  - ECMA 48, 5th Edition, §8.3.41
 fn erase_line() {
     print!("{CSI}J")
 }
