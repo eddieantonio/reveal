@@ -15,8 +15,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::env;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, IsTerminal};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
 // See: https://en.wikipedia.org/wiki/ANSI_escape_code#CSI_(Control_Sequence_Introducer)_sequences
@@ -25,9 +26,28 @@ const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[m";
 const DIM: &str = "\x1b[2m";
 
-fn main() -> io::Result<()> {
-    let input = BufReader::new(reroute_stdin()?);
+// Usage error. See `man sysexits`
+const EX_USAGE: i32 = 64;
 
+fn main() -> io::Result<()> {
+    let stdin_is_pipe = !io::stdin().is_terminal();
+    let filename: Option<String> = env::args().nth(1);
+
+    // Usage:
+    if let Some(filename) = filename {
+        // reveal FILENAME
+        reveal(File::open(filename)?)
+    } else if stdin_is_pipe {
+        // cmd | reveal
+        reveal(reroute_stdin()?)
+    } else {
+        // *reveal
+        usage_error()
+    }
+}
+
+fn reveal(input: File) -> io::Result<()> {
+    let input = BufReader::new(input);
     let controlling_terminal = File::open("/dev/tty")?;
     let mut stdin = BufReader::new(controlling_terminal);
     let mut dumpster = String::new();
@@ -75,4 +95,14 @@ fn cursor_preceding_line(n: u8) {
 ///  - ECMA 48, 5th Edition, §8.3.41
 fn erase_line() {
     print!("{CSI}J")
+}
+
+/// Incorrect invocation. Show usage and exit with failure.
+fn usage_error() -> ! {
+    eprintln!("reveal: error: No file specified and input has not been redirected.");
+    eprintln!("Usage:");
+    eprintln!("\treveal FILENAME");
+    eprintln!("\tCOMMAND | reveal");
+
+    std::process::exit(EX_USAGE)
 }
