@@ -1,6 +1,12 @@
 [package]
 name = "reveal-cli"
 version = "0.1.0"
+description = "reveal lines interactively, one line at a time"
+authors = ["Eddie Antonio Santos <hello@eddieantonio.ca>"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/eddieantonio/reveal"
+keywords = ["cli", "filter", "interactive"]
+categories = ["command-line-utilities"]
 edition = "2021"
 
 [[bin]]
